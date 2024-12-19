@@ -5,7 +5,37 @@ import numpy as np
 from sklearn.preprocessing import RobustScaler
 from datetime import datetime
 
-# Default preprocessing columns if the file is not available
+# Patient database
+PATIENT_DATABASE = {
+    "001": {
+        "age": 40,
+        "resting_bp": 140,
+        "cholesterol": 289,
+        "max_heart_rate": 172,
+        "oldpeak": 0.0,
+        "sex": "Male",
+        "fasting_blood_sugar": "No",
+        "exercise_angina": "No",
+        "chest_pain_type": "Atypical Angina",  # Type 2
+        "resting_ecg": "Normal",  # 0
+        "st_slope": "Upsloping"  # 1
+    },
+    "002": {
+        "age": 49,
+        "resting_bp": 160,
+        "cholesterol": 180,
+        "max_heart_rate": 156,
+        "oldpeak": 1.0,
+        "sex": "Female",
+        "fasting_blood_sugar": "No",
+        "exercise_angina": "No",
+        "chest_pain_type": "Non-anginal Pain",  # Type 3
+        "resting_ecg": "Normal",  # 0
+        "st_slope": "Flat"  # 2
+    }
+}
+
+# [Previous preprocessing columns and create_features function remain the same]
 DEFAULT_PREPROCESSING_COLUMNS = [
     'age', 'resting bp s', 'cholesterol', 'max heart rate', 'oldpeak',
     'sex', 'fasting blood sugar', 'exercise angina', 'chest pain type',
@@ -40,6 +70,14 @@ def main():
     if not patient_id:
         st.warning("Please enter a Patient ID to proceed.")
         return
+
+    # Initialize session state for form values if not exists
+    if 'form_values' not in st.session_state:
+        st.session_state.form_values = {}
+
+    # If patient ID exists in database and form values haven't been set
+    if patient_id in PATIENT_DATABASE and not st.session_state.form_values:
+        st.session_state.form_values = PATIENT_DATABASE[patient_id]
         
     st.write("Enter your medical information to check your heart disease risk.")
 
@@ -47,14 +85,11 @@ def main():
     try:
         model = joblib.load('svm_heart_disease_model.joblib')
         scaler = joblib.load('scaler.joblib')
-        
-        # Try to load preprocessing columns, use default if file doesn't exist
         try:
             preprocessing_columns = joblib.load('preprocessing_columns.joblib')
         except FileNotFoundError:
             preprocessing_columns = DEFAULT_PREPROCESSING_COLUMNS
             st.info("Using default preprocessing columns.")
-            
     except FileNotFoundError:
         st.error("Model files not found. Please ensure the model is trained and saved properly.")
         return
@@ -64,37 +99,58 @@ def main():
 
     with col1:
         st.subheader("Personal Information")
-        age = st.number_input("Age", min_value=1, max_value=100, value=45)
-        sex = st.selectbox("Sex", options=["Male", "Female"])
+        age = st.number_input("Age", 
+                            min_value=1, max_value=100, 
+                            value=st.session_state.form_values.get('age', 45))
+        sex = st.selectbox("Sex", 
+                          options=["Male", "Female"],
+                          index=["Male", "Female"].index(st.session_state.form_values.get('sex', "Male")))
         chest_pain_type = st.selectbox("Chest Pain Type", 
-                                     options=["Typical Angina", 
-                                             "Atypical Angina",
-                                             "Non-anginal Pain",
-                                             "Asymptomatic"],
-                                     help="Type of chest pain experienced")
+                                     options=["Typical Angina", "Atypical Angina",
+                                             "Non-anginal Pain", "Asymptomatic"],
+                                     index=["Typical Angina", "Atypical Angina",
+                                           "Non-anginal Pain", "Asymptomatic"].index(
+                                               st.session_state.form_values.get('chest_pain_type', "Typical Angina")))
         resting_bp = st.number_input("Resting Blood Pressure (mm Hg)", 
-                                   min_value=80, max_value=200, value=120)
+                                   min_value=80, max_value=200, 
+                                   value=st.session_state.form_values.get('resting_bp', 120))
         cholesterol = st.number_input("Cholesterol (mg/dl)", 
-                                    min_value=100, max_value=600, value=200)
+                                    min_value=100, max_value=600, 
+                                    value=st.session_state.form_values.get('cholesterol', 200))
 
     with col2:
         st.subheader("Medical Information")
         fasting_blood_sugar = st.selectbox("Fasting Blood Sugar > 120 mg/dl",
-                                         options=["Yes", "No"])
+                                         options=["Yes", "No"],
+                                         index=["Yes", "No"].index(
+                                             st.session_state.form_values.get('fasting_blood_sugar', "No")))
         resting_ecg = st.selectbox("Resting ECG Results",
-                                 options=["Normal",
-                                         "ST-T Wave Abnormality",
-                                         "Left Ventricular Hypertrophy"])
+                                 options=["Normal", "ST-T Wave Abnormality",
+                                         "Left Ventricular Hypertrophy"],
+                                 index=["Normal", "ST-T Wave Abnormality",
+                                       "Left Ventricular Hypertrophy"].index(
+                                           st.session_state.form_values.get('resting_ecg', "Normal")))
         max_heart_rate = st.number_input("Maximum Heart Rate",
-                                       min_value=60, max_value=220, value=150)
+                                       min_value=60, max_value=220,
+                                       value=st.session_state.form_values.get('max_heart_rate', 150))
         exercise_angina = st.selectbox("Exercise Induced Angina",
-                                     options=["Yes", "No"])
+                                     options=["Yes", "No"],
+                                     index=["Yes", "No"].index(
+                                         st.session_state.form_values.get('exercise_angina', "No")))
         oldpeak = st.number_input("ST Depression (Oldpeak)",
-                                min_value=0.0, max_value=10.0, value=0.0)
+                                min_value=0.0, max_value=10.0,
+                                value=st.session_state.form_values.get('oldpeak', 0.0))
         st_slope = st.selectbox("ST Slope",
-                              options=["Upsloping", "Flat", "Downsloping"])
+                              options=["Upsloping", "Flat", "Downsloping"],
+                              index=["Upsloping", "Flat", "Downsloping"].index(
+                                  st.session_state.form_values.get('st_slope', "Upsloping")))
 
-    # Create a dictionary to map categorical values to numerical ones
+    # Reset form values when changing patients
+    if st.button("Clear Form"):
+        st.session_state.form_values = {}
+        st.experimental_rerun()
+
+    # [Rest of the code remains the same - categorical mappings and prediction logic]
     categorical_mappings = {
         "sex": {"Male": 1, "Female": 0},
         "fasting_blood_sugar": {"Yes": 1, "No": 0},
@@ -160,7 +216,6 @@ def main():
                 value=f"{prediction_proba[0][1]:.1%}"
             )
 
-        # Store prediction in session state
         if 'predictions' not in st.session_state:
             st.session_state.predictions = []
             
@@ -177,7 +232,6 @@ def main():
         Please consult with a healthcare provider for proper diagnosis and treatment.
         """)
 
-        # Display prediction history
         if len(st.session_state.predictions) > 1:
             st.subheader("Previous Predictions")
             history_df = pd.DataFrame(st.session_state.predictions[:-1])

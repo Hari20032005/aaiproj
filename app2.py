@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import joblib
 import numpy as np
+import json
 from sklearn.preprocessing import RobustScaler
 from datetime import datetime
 
@@ -15,6 +16,65 @@ DEFAULT_PREPROCESSING_COLUMNS = [
     'bp_category_normal', 'bp_category_prehypertension',
     'bp_category_stage1', 'bp_category_stage2'
 ]
+
+def normalize_patient_id(patient_id):
+    """Remove leading zeros and spaces from patient ID"""
+    return str(int(patient_id.strip()))
+
+# Load patient data from JSON file
+def load_patient_data():
+    try:
+        with open('patient_data.json', 'r') as file:
+            data = json.load(file)
+            # Normalize all patient IDs in the dataset
+            for record in data:
+                record['patient_id'] = normalize_patient_id(record['patient_id'])
+            return pd.DataFrame(data)
+    except FileNotFoundError:
+        st.error("Patient data file not found!")
+        return None
+
+# Map JSON values to display values
+display_mappings = {
+    "sex": {
+        "1": "Male",
+        "0": "Female"
+    },
+    "chest pain type": {
+        "1": "Typical Angina",
+        "2": "Atypical Angina",
+        "3": "Non-anginal Pain",
+        "4": "Asymptomatic"
+    },
+    "fasting blood sugar": {
+        "1": "Yes",
+        "0": "No"
+    },
+    "resting ecg": {
+        "0": "Normal",
+        "1": "ST-T Wave Abnormality",
+        "2": "Left Ventricular Hypertrophy"
+    },
+    "exercise angina": {
+        "1": "Yes",
+        "0": "No"
+    },
+    "ST slope": {
+        "1": "Upsloping",
+        "2": "Flat",
+        "3": "Downsloping"
+    }
+}
+
+def get_patient_data(patient_id, patient_df):
+    if patient_df is None:
+        return None
+    
+    normalized_id = normalize_patient_id(patient_id)
+    patient = patient_df[patient_df['patient_id'] == normalized_id]
+    if len(patient) == 0:
+        return None
+    return patient.iloc[0]
 
 def create_features(df):
     df['age_group'] = pd.cut(df['age'], bins=[0, 30, 45, 60, 75, 100], labels=['very_young', 'young', 'middle', 'senior', 'elderly'])
@@ -34,29 +94,40 @@ def main():
     
     st.title("❤️ Heart Disease Risk Prediction")
     
+    # Load patient data
+    patient_df = load_patient_data()
+    
     # Get patient ID input
     patient_id = st.text_input("Enter Patient ID:")
     
     if not patient_id:
         st.warning("Please enter a Patient ID to proceed.")
         return
-        
-    st.write("Enter your medical information to check your heart disease risk.")
 
-    # Load the trained model and preprocessing columns
     try:
+        # Load the trained model and preprocessing columns
         model = joblib.load('svm_heart_disease_model.joblib')
         scaler = joblib.load('scaler.joblib')
-        
-        # Try to load preprocessing columns, use default if file doesn't exist
         try:
             preprocessing_columns = joblib.load('preprocessing_columns.joblib')
         except FileNotFoundError:
             preprocessing_columns = DEFAULT_PREPROCESSING_COLUMNS
             st.info("Using default preprocessing columns.")
-            
     except FileNotFoundError:
         st.error("Model files not found. Please ensure the model is trained and saved properly.")
+        return
+
+    # Load patient data if ID exists
+    try:
+        patient_data = get_patient_data(patient_id, patient_df) if patient_df is not None else None
+    except ValueError:
+        st.error("Invalid patient ID format. Please enter a valid number.")
+        return
+    
+    if patient_data is not None:
+        st.success(f"Patient data found for ID: {patient_id}")
+    else:
+        st.error(f"No patient data found for ID: {patient_id}")
         return
 
     # Create two columns for input fields
@@ -64,37 +135,76 @@ def main():
 
     with col1:
         st.subheader("Personal Information")
-        age = st.number_input("Age", min_value=1, max_value=100, value=45)
-        sex = st.selectbox("Sex", options=["Male", "Female"])
-        chest_pain_type = st.selectbox("Chest Pain Type", 
-                                     options=["Typical Angina", 
-                                             "Atypical Angina",
-                                             "Non-anginal Pain",
-                                             "Asymptomatic"],
-                                     help="Type of chest pain experienced")
-        resting_bp = st.number_input("Resting Blood Pressure (mm Hg)", 
-                                   min_value=80, max_value=200, value=120)
-        cholesterol = st.number_input("Cholesterol (mg/dl)", 
-                                    min_value=100, max_value=600, value=200)
+        age = st.number_input("Age of the people", 
+                            min_value=1, 
+                            max_value=100, 
+                            value=int(float(patient_data['age'])))
+        
+        sex = st.selectbox("Sex", 
+                          options=["Male", "Female"],
+                          index=0 if patient_data['sex'] == "1" else 1)
+        
+        chest_pain_type = st.selectbox(
+            "Chest Pain Type",
+            options=list(display_mappings["chest pain type"].values()),
+            index=int(float(patient_data['chest pain type'])) - 1
+        )
+        
+        resting_bp = st.number_input(
+            "Resting Blood Pressure (mm Hg)",
+            min_value=80,
+            max_value=200,
+            value=int(float(patient_data['resting bp s']))
+        )
+        
+        cholesterol = st.number_input(
+            "Cholesterol (mg/dl)",
+            min_value=0,
+            max_value=600,
+            value=int(float(patient_data['cholesterol']))
+        )
 
     with col2:
         st.subheader("Medical Information")
-        fasting_blood_sugar = st.selectbox("Fasting Blood Sugar > 120 mg/dl",
-                                         options=["Yes", "No"])
-        resting_ecg = st.selectbox("Resting ECG Results",
-                                 options=["Normal",
-                                         "ST-T Wave Abnormality",
-                                         "Left Ventricular Hypertrophy"])
-        max_heart_rate = st.number_input("Maximum Heart Rate",
-                                       min_value=60, max_value=220, value=150)
-        exercise_angina = st.selectbox("Exercise Induced Angina",
-                                     options=["Yes", "No"])
-        oldpeak = st.number_input("ST Depression (Oldpeak)",
-                                min_value=0.0, max_value=10.0, value=0.0)
-        st_slope = st.selectbox("ST Slope",
-                              options=["Upsloping", "Flat", "Downsloping"])
+        fasting_blood_sugar = st.selectbox(
+            "Fasting Blood Sugar > 120 mg/dl",
+            options=["Yes", "No"],
+            index=0 if patient_data['fasting blood sugar'] == "1" else 1
+        )
+        
+        resting_ecg = st.selectbox(
+            "Resting ECG Results",
+            options=list(display_mappings["resting ecg"].values()),
+            index=int(float(patient_data['resting ecg']))
+        )
+        
+        max_heart_rate = st.number_input(
+            "Maximum Heart Rate",
+            min_value=60,
+            max_value=220,
+            value=int(float(patient_data['max heart rate']))
+        )
+        
+        exercise_angina = st.selectbox(
+            "Exercise Induced Angina",
+            options=["Yes", "No"],
+            index=0 if patient_data['exercise angina'] == "1" else 1
+        )
+        
+        oldpeak = st.number_input(
+            "ST Depression (Oldpeak)",
+            min_value=0.0,
+            max_value=10.0,
+            value=float(patient_data['oldpeak'])
+        )
+        
+        st_slope = st.selectbox(
+            "ST Slope",
+            options=list(display_mappings["ST slope"].values()),
+            index=int(float(patient_data['ST slope'])) - 1
+        )
 
-    # Create a dictionary to map categorical values to numerical ones
+    # Categorical mappings for prediction
     categorical_mappings = {
         "sex": {"Male": 1, "Female": 0},
         "fasting_blood_sugar": {"Yes": 1, "No": 0},
@@ -150,9 +260,9 @@ def main():
 
         with result_col1:
             if prediction[0] == 1:
-                st.error("⚠️ Heart Disease")
+                st.error("⚠️ Heart Disease Detected")
             else:
-                st.success("✅ No Heart Disease")
+                st.success("✅ No Heart Disease Detected")
 
         with result_col2:
             st.metric(
